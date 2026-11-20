@@ -1,34 +1,46 @@
-// Entry program for news-image-20261120.
+// main.ts — entry program for the make.fun "news-image-20261120" bounty.
 //
-// The repository ships a finished infographic, entry.png, drawn as an
-// HTML/SVG page (index.html) and rendered once to PNG. The harness runs
-// this program with no network and wants the picture at a fixed output
-// path, so the program only has to put a copy of the bundled PNG there:
+// The finished infographic — "20 November 2026 — The Day in One Image",
+// a 1024x1024 PNG — is stored in this repository as entry.png.
+// This program copies that image to the output location the grader
+// expects, so the program is a faithful, deterministic delivery of the
+// entry image.
 //
-//   destination = $MAKEFUN_OUTPUT_DIR/entry.png   when that variable
-//                                                  is set (local runs)
-//               = /output/entry.png                otherwise (grader)
-//
-// Node 22 standard library only. Try it locally with:
-//
-//   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
+// Node.js standard library only. No network access. The copy is a plain
+// byte-for-byte file copy, so two runs always produce byte-identical
+// output.
 
-import { copyFileSync, mkdirSync, statSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// Resolve everything from this file's own directory. Relying on the
-// caller's working directory would break as soon as the harness runs
-// the program from somewhere else.
-const folder = dirname(fileURLToPath(import.meta.url));
-const bundled = join(folder, "entry.png");
+// The bundled image lives next to this file, at the repository root.
+const repoDir = dirname(fileURLToPath(import.meta.url));
+const sourcePath = join(repoDir, "entry.png");
 
-const outDir = process.env.MAKEFUN_OUTPUT_DIR || "/output";
-const outFile = join(outDir, "entry.png");
+// The grader sets MAKEFUN_OUTPUT_DIR; without it, write to /output.
+const outputDir = process.env.MAKEFUN_OUTPUT_DIR
+  ? resolve(process.env.MAKEFUN_OUTPUT_DIR)
+  : "/output";
+const outputPath = join(outputDir, "entry.png");
 
-// The output folder may not exist yet in a fresh sandbox, so make it
-// (recursively, and quietly if it is already there).
-mkdirSync(outDir, { recursive: true });
-copyFileSync(bundled, outFile);
+if (!existsSync(sourcePath)) {
+  console.error(`error: bundled image not found: ${sourcePath}`);
+  process.exit(1);
+}
 
-console.log("wrote " + outFile + " (" + statSync(outFile).size + " bytes)");
+mkdirSync(outputDir, { recursive: true });
+copyFileSync(sourcePath, outputPath);
+
+// Sanity check: the written file must be a real PNG. If the bundled
+// image were ever corrupted or truncated, failing loudly here beats
+// shipping a broken entry that the grader would reject.
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+const header = readFileSync(outputPath).subarray(0, 8);
+if (!header.equals(PNG_SIGNATURE)) {
+  console.error(`error: output is not a valid PNG: ${outputPath}`);
+  process.exit(1);
+}
+
+const bytes = statSync(outputPath).size;
+console.log(`Wrote ${outputPath} (${bytes} bytes)`);
